@@ -1,6 +1,7 @@
 #ifndef MATRIX_H
 #define MATRIX_H
 
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -44,6 +45,8 @@ namespace linalg
     [[nodiscard]] unsigned int get_dimension_y() const { return dim_y; }
     [[nodiscard]] matrix partial_matrix(unsigned int s_x, unsigned int e_x, unsigned int s_y, unsigned int e_y) const;
     [[nodiscard]] std::pair<matrix, matrix> lu_decompose() const;
+
+    std::string to_string() const;
   };
 
 }

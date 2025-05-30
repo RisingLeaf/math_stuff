@@ -195,3 +195,16 @@ std::pair<linalg::matrix, linalg::matrix> linalg::matrix::lu_decompose() const
 
   return std::make_pair(L, U);
 }
+
+
+std::string linalg::matrix::to_string() const
+{
+  std::string res = "matrix<" + std::to_string(dim_x) + "," + std::to_string(dim_y) + ">(\n";
+  for(unsigned int x = 0; x < dim_x; x++)
+  {
+    for(unsigned int y = 0; y < dim_y; y++)
+      res += ((*this)(x, y) > 0 ? " " : "" ) + std::to_string((*this)(x, y)) + ", ";
+    res += "\n";
+  }
+  return res + ");";
+}

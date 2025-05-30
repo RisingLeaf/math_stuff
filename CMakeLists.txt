@@ -8,4 +8,11 @@ add_executable(quaternions main.cpp
   linear_algebra/matrix.cpp
   linear_algebra/matrix.h
   linear_algebra/linalg.h
-  linear_algebra/linalg.cpp)
+  linear_algebra/linalg.cpp
+  loading/WavefrontObj.cpp
+  loading/WavefrontObj.h
+
+  system/Log.cpp
+  system/Log.h
+)
+

@@ -2,117 +2,122 @@
 #include <vector>
 #include <cmath>
 #include <iomanip>
-#include <span>
-#define GLM_FORCE_PURE
 #include <glm/glm.hpp>
 
 #include "linear_algebra/linalg.h"
+#include "loading/WavefrontObj.h"
 
 constexpr double     PI      = 3.14159265358979323846;
 constexpr double     EPSILON = 1e-12;
-constexpr glm::dvec2 wind(-1.0, -1.0);
+constexpr glm::dvec3 wind(0.0, 1.0, 0.0);  // Coming from +x
 
-void subdivide(std::vector<glm::dvec2> &in_points)
+glm::dvec3 vortex_segment_induced_velocity(const glm::dvec3& A, const glm::dvec3& B, const glm::dvec3& P, const double gamma)
 {
-    const size_t count = in_points.size();
-    std::vector<glm::dvec2> new_points; new_points.reserve(2 * count);
-    for (size_t x = 0; x < count; ++x)
-    {
-        const glm::dvec2 &p0  = in_points[x];
-        const glm::dvec2 &p1  = in_points[(x + 1) % count];
-        new_points.push_back(0.75 * p0 + 0.25 * p1);
-        new_points.push_back(0.25 * p0 + 0.75 * p1);
-    }
-    in_points.swap(new_points);
+    const glm::dvec3 r1 = P - A;
+    const glm::dvec3 r2 = P - B;
+    const glm::dvec3 r0 = B - A;
+
+    const glm::dvec3 r0_hat      = glm::normalize(r0);
+    const glm::dvec3 cross_r1_r2 = glm::cross(r1, r2);
+    const double     norm_cross  = glm::dot(cross_r1_r2, cross_r1_r2);
+
+    if (norm_cross < EPSILON)
+        return glm::dvec3(0.0); // Avoid singularity
+
+    const double term1 = glm::dot(r1, r0_hat) / glm::length(r1);
+    const double term2 = glm::dot(r2, r0_hat) / glm::length(r2);
+
+    const glm::dvec3 induced = (gamma / (4.0 * PI)) * (cross_r1_r2 / norm_cross) * (term1 - term2);
+    return induced;
 }
 
-void make_panels(const std::vector<glm::dvec2> &points, std::vector<std::pair<glm::dvec2, glm::dvec2>> &out)
+glm::dvec3 triangle_panel_induced_velocity_unit(const glm::dvec3& P, const glm::dvec3& v0, const glm::dvec3& v1, const glm::dvec3& v2)
 {
-    out.reserve(points.size());
-    for (size_t i = 0; i < points.size(); ++i)
-        out.emplace_back(points[i], points[(i + 1) % points.size()]);
-}
-
-void calculate_midpoints(const std::vector<std::pair<glm::dvec2, glm::dvec2>> &panels, std::vector<glm::dvec2> &out)
-{
-    out.reserve(panels.size());
-    for (const auto &[fst, snd] : panels)
-        out.push_back(0.5 * (fst + snd));
-}
-
-void calculate_tangents(const std::vector<std::pair<glm::dvec2, glm::dvec2>>& panels, std::vector<glm::dvec2> &out)
-{
-    out.reserve(panels.size());
-    for (const auto &[fst, snd] : panels)
-        out.push_back(glm::normalize(snd - fst));
-}
-
-void normals_from_tangents(const std::vector<glm::dvec2>& tangents, std::vector<glm::dvec2> &out)
-{
-    out.reserve(tangents.size());
-    for (const auto& t : tangents)
-        out.emplace_back(t[1], -t[0]);
-}
-
-double matrix_entry_at(const size_t i, const size_t j, const std::vector<glm::dvec2>& vor, const std::vector<glm::dvec2>& col, const std::vector<glm::dvec2>& normals) {
-    const glm::dvec2 &c = col[i];
-    const glm::dvec2 &v = vor[j];
-    const glm::dvec2  d = c - v;
-    const double r_sq   = std::max(glm::dot(d, d), EPSILON);
-    const double u      =  (1.0 / (2.0 * PI * r_sq)) * (c[1] - v[1]);
-    const double v_comp = -(1.0 / (2.0 * PI * r_sq)) * (c[0] - v[0]);
-    return u * normals[i][0] + v_comp * normals[i][1];
+    glm::dvec3 vel(0.0);
+    vel += vortex_segment_induced_velocity(v0, v1, P, 1.0);
+    vel += vortex_segment_induced_velocity(v1, v2, P, 1.0);
+    vel += vortex_segment_induced_velocity(v2, v0, P, 1.0);
+    return vel;
 }
 
 int main()
 {
-    std::vector<glm::dvec2> points = {
-        {-2.0,  0.00},
-        {-1.5,  0.35},
-        {-0.8,  0.60},
-        {-0.2,  0.70},
-        { 0.2,  0.60},
-        { 0.6,  0.50},
-        { 2.0,  0.00},
-        { 1.2, -0.15},
-        { 0.5, -0.30},
-        { 0.0,  0.40},
-        {-0.5,  0.20},
-        {-1.2, -0.15}
+    std::vector<WavefrontObj::Vertex> vertices;
+    std::vector<uint32_t> indices;
+    WavefrontObj::LoadObj("../wing.obj", vertices, indices);
+
+    struct Triangle
+    {
+        glm::dvec3 a, b, c;
+        glm::dvec3 normal;
+        glm::dvec3 midpoint;
+        double area;
     };
 
-    subdivide(points);
-    subdivide(points);
+    std::vector<Triangle> triangles;
+    for(size_t i = 0; i < indices.size() / 3; i++)
+    {
+        Triangle &working = triangles.emplace_back();
+        working.a = vertices[indices[i * 3 + 0]].Position;
+        working.b = vertices[indices[i * 3 + 1]].Position;
+        working.c = vertices[indices[i * 3 + 2]].Position;
 
-    std::vector<std::pair<glm::dvec2, glm::dvec2>> panels;    make_panels(          points,   panels);
-    std::vector<glm::dvec2>                        midpoints; calculate_midpoints(  panels,   midpoints);
-    std::vector<glm::dvec2>                        tangents;  calculate_tangents(   panels,   tangents);
-    std::vector<glm::dvec2>                        normals;   normals_from_tangents(tangents, normals);
+        working.normal = vertices[indices[i * 3 + 0]].Normal;
+        working.midpoint = (working.a + working.b + working.c) / 3.;
 
-    const size_t DIMENSION = points.size();
+        working.area = 0.5 * glm::length(glm::cross(working.a - working.b, working.c - working.a));
+    }
+
+
+    const size_t DIMENSION = triangles.size();
 
     linalg::matrix A(DIMENSION);
     linalg::matrix B(DIMENSION, 1);
 
-    for(size_t i = 0; i < DIMENSION; i++)
+    for (size_t i = 0; i < triangles.size(); ++i)
     {
-        B(i, 0) = glm::dot(normals[i], wind);
-        for(size_t j = 0; j < DIMENSION; j++)
-            A(i, j) = matrix_entry_at(i, j, midpoints, points, normals);
+        const glm::dvec3& Pi = triangles[i].midpoint;
+        const glm::dvec3& ni = triangles[i].normal;
+
+        for (size_t j = 0; j < triangles.size(); ++j)
+        {
+            const auto& tri = triangles[j];
+            glm::dvec3 Vij = triangle_panel_induced_velocity_unit(Pi, tri.a, tri.b, tri.c);
+            A(i, j) = glm::dot(Vij, ni) + (i == j ? EPSILON : 0.);
+        }
+
+        B(i, 0) = -glm::dot(wind, ni);
     }
+
+    std::cout<<A.to_string()<<std::endl;
 
     auto GAMMA = linalg::solve_LU(A, B);
 
 
-    // Circulation
-    double gamma_total = 0.0;
-    for (size_t i = 0; i < GAMMA.get_dimension_x(); ++i)
-        gamma_total += GAMMA(i, 0) * glm::length(panels[i].second - panels[i].first);
+    const double V_inf  = glm::length(wind);
+    const glm::dvec3 wind_dir = glm::normalize(wind);
+    const glm::dvec3 lift_dir(0.0, 0.0, 1.0);  // +Z direction for lift
 
-    const     double V_inf = glm::length(wind);
-    constexpr double chord = 2.0;
-    const     double C_L   = -2. * gamma_total / (chord * V_inf);
+    double total_lift_contribution = 0.0;
+    double S = 0.0;  // reference area
 
-    std::cout << "Lift coefficient C_L: " << C_L << std::endl;
+    for (size_t i = 0; i < triangles.size(); ++i)
+    {
+        const auto& tri = triangles[i];
+        double gamma = GAMMA(i, 0);
+
+        double projected_area = tri.area * std::abs(glm::dot(tri.normal, wind_dir));  // projection for S
+        S += projected_area;
+
+        // Each gamma * area contributes to lift in proportion to alignment with lift direction
+        double lift_factor = glm::dot(glm::cross(wind_dir, tri.normal), lift_dir);  // sin(theta between wind and panel normal in lift dir)
+        total_lift_contribution += gamma * tri.area * lift_factor;
+    }
+
+    // Use circulation-based lift estimate
+    double CL = (2.0 / (V_inf * S)) * total_lift_contribution;
+
+    std::cout << "Lift coefficient (C_L) = " << CL << std::endl;
+
     return 0;
 }
