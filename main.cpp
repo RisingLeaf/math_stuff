@@ -99,18 +99,17 @@ int main()
     const glm::dvec3 lift_dir(0.0, 0.0, 1.0);  // +Z direction for lift
 
     double total_lift_contribution = 0.0;
-    double S = 0.0;  // reference area
+    double S = 0.0;
 
     for (size_t i = 0; i < triangles.size(); ++i)
     {
         const auto& tri = triangles[i];
         double gamma = GAMMA(i, 0);
 
-        double projected_area = tri.area * std::abs(glm::dot(tri.normal, wind_dir));  // projection for S
+        double projected_area = tri.area * std::abs(glm::dot(tri.normal, wind_dir));
         S += projected_area;
 
-        // Each gamma * area contributes to lift in proportion to alignment with lift direction
-        double lift_factor = glm::dot(glm::cross(wind_dir, tri.normal), lift_dir);  // sin(theta between wind and panel normal in lift dir)
+        double lift_factor = glm::dot(glm::cross(wind_dir, tri.normal), lift_dir);
         total_lift_contribution += gamma * tri.area * lift_factor;
     }
 
